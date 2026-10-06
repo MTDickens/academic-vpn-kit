@@ -1,0 +1,7 @@
+{
+  "mode": "rules",
+  "vpn_kind": "openconnect",
+  "vpn_flavor": "anyconnect",
+  "vpn_server": "https://vpn.cmu.edu",
+  "auth_group": "Full VPN"
+}

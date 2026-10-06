@@ -1,0 +1,38 @@
+# Curated publisher/database domains. Review against actual university subscriptions.
+# Upstream reference: https://github.com/v2fly/domain-list-community/blob/master/data/category-scholar-%21cn
+# Bare domains match themselves and subdomains. full: matches exactly.
+acm.org
+acs.org
+annualreviews.org
+aps.org
+ascelibrary.org
+asme.org
+cambridge.org
+clarivate.com
+ebsco.com
+ebscohost.com
+elsevier.com
+emerald.com
+ieee.org
+iop.org
+jstor.org
+nature.com
+oup.com
+ovid.com
+proquest.com
+rsc.org
+sagepub.com
+science.org
+sciencedirect.com
+sciencemag.org
+scitation.org
+silverchair-cdn.com
+spiedigitallibrary.org
+springer.com
+springernature.com
+tandfonline.com
+taylorfrancis.com
+webofscience.com
+wiley.com
+worldscientific.com
+full:muse.jhu.edu

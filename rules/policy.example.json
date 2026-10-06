@@ -1,0 +1,8 @@
+{
+  "default": "direct",
+  "rules": [
+    {"domains": ["full:login.publisher.example"], "outbound": "direct"},
+    {"domains": ["publisher.example", "database.example"], "outbound": "vpn"},
+    {"domains": ["blocked.example"], "outbound": "block"}
+  ]
+}

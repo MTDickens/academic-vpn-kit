@@ -1,0 +1,6 @@
+{
+  "mode": "rules",
+  "vpn_kind": "openconnect",
+  "vpn_flavor": "gp",
+  "auth_group": ""
+}
