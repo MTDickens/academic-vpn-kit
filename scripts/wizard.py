@@ -25,6 +25,74 @@ def choice(label, options, default=0):
         print('请输入菜单中的数字。')
 
 
+def configure_vpn(args):
+    credentials = None
+    state = args.state
+    default_provider = 2 if args.vpn_kind == 'socks' else (0 if 'vpn.cmu.edu' in args.vpn_server or not args.vpn_server else 1)
+    provider = choice('VPN 提供商', [('cmu', 'CMU Full VPN'), ('custom', '其他学校/提供商'),
+                                    ('socks', '已有 SOCKS5 出口')], default_provider)
+    if provider == 'socks':
+        args.vpn_kind = 'socks'
+        args.upstream_host = ask('SOCKS5 主机', args.upstream_host, required=True)
+        while True:
+            port = ask('SOCKS5 端口', args.upstream_port)
+            if port.isdigit() and 0 < int(port) < 65536:
+                args.upstream_port = int(port); break
+            print('端口范围是 1–65535。')
+        has_auth = (state / 'upstream-secrets.json').exists()
+        login = choice('SOCKS5 认证', [('none', '不需要账号'), ('keep', '沿用已保存账号'),
+                                      ('new', '输入账号和密码')], 1 if has_auth else 0)
+        if login == 'new':
+            credentials = {'username': ask('SOCKS5 用户名', required=True),
+                           'password': getpass.getpass('SOCKS5 密码（隐藏输入）: ')}
+        elif login == 'none':
+            credentials = {}  # Explicitly remove previously saved authentication.
+        elif not has_auth:
+            raise ValueError('没有保存过 SOCKS5 账号，请选择输入账号或无需认证')
+    else:
+        args.vpn_kind = 'openconnect'
+        if provider == 'cmu':
+            args.vpn_server = 'https://vpn.cmu.edu'
+            args.vpn_flavor = 'anyconnect'; args.auth_group = 'Full VPN'
+        else:
+            args.vpn_server = ask('学校官方 VPN 网关', args.vpn_server, required=True)
+            flavors = [('anyconnect', 'Cisco AnyConnect'), ('gp', 'GlobalProtect'),
+                       ('fortinet', 'Fortinet'), ('f5', 'F5'), ('pulse', 'Pulse'), ('nc', 'Network Connect')]
+            args.vpn_flavor = choice('VPN 协议', flavors, [x[0] for x in flavors].index(args.vpn_flavor))
+            group = ask('登录组（输入 - 清空，由认证流程选择）',
+                        args.auth_group if default_provider == 1 else '')
+            args.auth_group = '' if group == '-' else group
+    return credentials
+
+
+MODES = [('none', '关闭 VPN，普通代理节点'),
+         ('rules', '按现有名单/规则分流（默认学术名单）'),
+         ('all', '全部代理流量走 VPN（不接管服务器自身网络）')]
+
+
+def select_mode(current):
+    return choice('出口模式', MODES, [x[0] for x in MODES].index(current))
+
+
+def collect_switch(kit, args):
+    if not all((args.state / name).exists() for name in
+               ['identity.json', 'settings.json', 'deployed/settings.json', 'bin/sing-box', 'bin/xray']):
+        raise ValueError('此目录没有完整的已安装节点，请先选择“安装或更新节点”')
+    print('当前模式：' + dict(MODES)[args.mode])
+    previous = args.mode
+    args.mode = select_mode(previous)
+    if args.mode == previous:
+        args.command = 'unchanged'
+        return args, None
+    credentials = None
+    if args.mode != 'none' and args.vpn_kind == 'openconnect' and not args.vpn_server:
+        print('首次启用 VPN，请补充连接设置。')
+        credentials = configure_vpn(args)
+    if args.mode == 'rules':
+        print('沿用分流文件：' + str(args.policy if args.policy and args.policy != 'none' else args.rules))
+    return args, credentials
+
+
 def collect(kit, initial_state):
     """Gather choices without installing, modifying configuration or starting services."""
     print('VPN Route Kit：回车使用默认值；Ctrl+C 可取消。')
@@ -34,9 +102,13 @@ def collect(kit, initial_state):
         ('setup', '安装或更新节点'), ('generate', '只生成配置、链接和二维码'),
         ('auth', '登录/重新登录 VPN'), ('doctor', '查看状态并检查连接'),
         ('show', '查看分享链接和 Clash 配置'), ('stop', '停止本仓库的节点服务'),
-        ('update-rules', '下载社区学术域名名单')])
+        ('update-rules', '下载社区学术域名名单'),
+        ('switch', '快速切换出口模式：关闭 VPN / 名单分流 / 全部走 VPN')],
+        7 if (state / 'deployed/settings.json').exists() else 0)
     args.command = action
     credentials = None
+    if action == 'switch':
+        return collect_switch(kit, args)
     if action not in {'setup', 'generate', 'show', 'stop'}:
         return args, credentials
     backends = [('sing-box', 'sing-box'), ('xray', 'Xray')]
@@ -66,44 +138,9 @@ def collect(kit, initial_state):
         print('端口范围是 1–65535。')
     selected_sni = ask('REALITY 握手域名', old.get('sni', 'learn.microsoft.com'), required=True)
     args.sni = None if selected_sni == old.get('sni') else selected_sni
-    modes = [('none', '普通节点，不使用 VPN'), ('rules', '按域名名单/例外分流'),
-             ('all', '全部代理流量走 VPN（不接管服务器自身网络）')]
-    args.mode = choice('出口模式', modes, [x[0] for x in modes].index(args.mode))
+    args.mode = select_mode(args.mode)
     if args.mode != 'none':
-        default_provider = 2 if args.vpn_kind == 'socks' else (0 if 'vpn.cmu.edu' in args.vpn_server or not args.vpn_server else 1)
-        provider = choice('VPN 提供商', [('cmu', 'CMU Full VPN'), ('custom', '其他学校/提供商'),
-                                        ('socks', '已有 SOCKS5 出口')], default_provider)
-        if provider == 'socks':
-            args.vpn_kind = 'socks'
-            args.upstream_host = ask('SOCKS5 主机', args.upstream_host, required=True)
-            while True:
-                port = ask('SOCKS5 端口', args.upstream_port)
-                if port.isdigit() and 0 < int(port) < 65536:
-                    args.upstream_port = int(port); break
-                print('端口范围是 1–65535。')
-            has_auth = (state / 'upstream-secrets.json').exists()
-            login = choice('SOCKS5 认证', [('none', '不需要账号'), ('keep', '沿用已保存账号'),
-                                          ('new', '输入账号和密码')], 1 if has_auth else 0)
-            if login == 'new':
-                credentials = {'username': ask('SOCKS5 用户名', required=True),
-                               'password': getpass.getpass('SOCKS5 密码（隐藏输入）: ')}
-            elif login == 'none':
-                credentials = {}  # Explicitly remove previously saved authentication.
-            elif not has_auth:
-                raise ValueError('没有保存过 SOCKS5 账号，请选择输入账号或无需认证')
-        else:
-            args.vpn_kind = 'openconnect'
-            if provider == 'cmu':
-                args.vpn_server = 'https://vpn.cmu.edu'
-                args.vpn_flavor = 'anyconnect'; args.auth_group = 'Full VPN'
-            else:
-                args.vpn_server = ask('学校官方 VPN 网关', args.vpn_server, required=True)
-                flavors = [('anyconnect', 'Cisco AnyConnect'), ('gp', 'GlobalProtect'),
-                           ('fortinet', 'Fortinet'), ('f5', 'F5'), ('pulse', 'Pulse'), ('nc', 'Network Connect')]
-                args.vpn_flavor = choice('VPN 协议', flavors, [x[0] for x in flavors].index(args.vpn_flavor))
-                group = ask('登录组（输入 - 清空，由认证流程选择）',
-                            args.auth_group if default_provider == 1 else '')
-                args.auth_group = '' if group == '-' else group
+        credentials = configure_vpn(args)
     if args.mode == 'rules':
         policy = choice('分流规则', [('list', '域名名单'), ('policy', '有序规则：直连 / VPN / 阻断')],
                         1 if args.policy and args.policy != 'none' else 0)
@@ -121,6 +158,18 @@ def wizard(kit, initial_state):
         args, credentials = collect(kit, initial_state)
     except (EOFError, KeyboardInterrupt):
         print('\n已取消，未开始安装或部署。'); return
+    if args.command == 'unchanged':
+        print('已是所选模式，无需修改。')
+        return
+    if args.command == 'switch':
+        if os.geteuid() != 0:
+            raise ValueError('切换需要 root，请用 sudo ./entrypoint.sh 重新运行')
+        args.upstream_credentials = credentials
+        kit.generate(args)
+        kit.deploy(args)
+        kit.auth(args)
+        print('已切换为：' + dict(MODES)[args.mode] + '。客户端继续使用原节点。')
+        return
     if args.command in {'setup', 'generate'}:
         if args.command == 'setup' and os.geteuid() != 0:
             raise ValueError('安装需要 root，请用 sudo ./entrypoint.sh 重新运行')

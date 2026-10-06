@@ -5,7 +5,7 @@ description: Maintain or migrate this VPN Route Kit repository, its sing-box/Xra
 
 # VPN Route Kit maintenance
 
-Read the repository README for the interactive wizard and deployed file layout. Normal usage is `sudo ./entrypoint.sh` without arguments; preserve numbered choices, visible defaults and saved settings. Keep CLI arguments only for automation. Resolve the repository relative to this skill (`../..`), not a hardcoded user's home directory. Use [runtime notes](references/runtime.md) when diagnosing authentication, routing, or migration failures.
+Read the repository README for the interactive wizard and deployed file layout. Normal usage is `sudo ./entrypoint.sh` without arguments; preserve numbered choices, visible defaults and saved settings. Keep CLI arguments only for automation. Preserve the quick mode-switch menu: reuse saved node/VPN/rules, skip installation and downloads, ask for a provider only when missing, and do nothing when the selected mode is already active. Resolve the repository relative to this skill (`../..`), not a hardcoded user's home directory. Use [runtime notes](references/runtime.md) when diagnosing authentication, routing, or migration failures.
 
 Preserve the user's selected gateway backend, `none`/`rules`/`all` mode, VPN provider and custom lists. The default is a normal node without VPN. `all` covers traffic entering the proxy, not the host's network. A university's protocol cannot be inferred from its name; obtain its official VPN instructions before adding a preset.
 
