@@ -129,10 +129,18 @@ def collect(kit, initial_state):
         ('auth', '登录/重新登录 VPN'), ('doctor', '查看状态并检查连接'),
         ('show', '查看分享链接和 Clash 配置'), ('stop', '停止本仓库的节点服务'),
         ('update-rules', '下载社区学术域名名单'),
-        ('switch', '快速调整 VPN：总开关 / 学术与 CMU 独立开关')],
+        ('switch', '快速调整 VPN：总开关 / 学术与 CMU 独立开关'),
+        ('host-network', 'Linux 本机网络：仅代理 / 本机分流 / 本机全局')],
         7 if (state / 'deployed/settings.json').exists() else 0)
     args.command = action
     credentials = None
+    if action == 'host-network':
+        import host_network
+        current = host_network.current_mode(args.state)
+        print('此选项控制这台 Linux 的普通程序；代理节点的出口设置独立保留。')
+        args.host_mode = choice('本机网络', host_network.MODES,
+                                [x[0] for x in host_network.MODES].index(current))
+        return args, credentials
     if action == 'switch':
         return collect_switch(kit, args)
     if action not in {'setup', 'generate', 'show', 'stop'}:
@@ -185,6 +193,10 @@ def wizard(kit, initial_state):
         args, credentials = collect(kit, initial_state)
     except (EOFError, KeyboardInterrupt):
         print('\n已取消，未开始安装或部署。'); return
+    if args.command == 'host-network':
+        import host_network
+        host_network.apply(kit, args, args.host_mode)
+        return
     if args.command == 'unchanged':
         print('已是所选模式，无需修改。')
         return

@@ -40,6 +40,40 @@ sudo ./entrypoint.sh
 
 默认选择 sing-box；要使用 Xray，加 `--backend xray`。两种后端共用身份和配置来源，是互换方案，不能同时占用同一入口端口。端口被旧服务占用时会说明原因并退出，不自动关闭旧 Xray。
 
+### Linux 本机网络：代理与整机接管切换
+
+本节控制**运行脚本的这台 Linux**，不是 Mac，也不改变客户端的 Clash 模式。运行：
+
+```bash
+sudo /root/academic-vpn-kit/entrypoint.sh
+```
+
+选择 **9. Linux 本机网络**，再选择：
+
+| 选择 | Linux 普通程序的行为 |
+|---|---|
+| 仅代理 | 恢复原 DNS 和普通出口；现有 VLESS 节点继续按自己的规则工作 |
+| 本机分流 | 无需设置代理，学术 / CMU 等开启的规则组走 VPN，其他流量走普通出口 |
+| 本机全局 | 无需设置代理，本机 TCP/UDP 流量走 VPN，包括通过域名访问学校内网 |
+
+它复用已登录的 sing-box/OpenConnect worker，新建独立的 `academic-vpn-host.service` 和 TUN 接口；切换不需要重启学校登录会话。需要先安装节点并启用、登录内置 VPN。本机接管当前支持 Linux/systemd + 内置 OpenConnect，需有 `/dev/net/tun`、`iproute2`、`nftables`、`curl`；外部 SOCKS 的推送 DNS 无法自动获取，暂不支持此菜单。
+
+VPN 控制连接、当前 SSH 管理来源、物理网卡直连网段及本仓库 sing-box/Xray 进程保留普通出口，避免回环或断开管理连接。此处的“全局”指这些例外之外的 TCP/UDP；ICMP（例如 ping）不通过 SOCKS 隧道，不能用 ping 判断该模式是否正常。已有入站服务连接由 Linux conntrack 保留其返回路径。
+
+本机分流沿用现有域名组及自定义有序规则。菜单 8 修改规则时，会暂时停止本机 TUN，完成代理部署和认证后再按新的规则恢复原本机档位；在菜单 8 关闭 VPN，则本机接管也关闭。全部代理出口（菜单 8）和本机全局（菜单 9）是两个独立控制项。
+
+DNS 会临时切换到 TUN 内的解析器，A/AAAA 使用 FakeIP 保留域名，VPN worker 最终使用学校 DNS 解析 VPN 目标；本机分流的其他目标使用公共 DNS。自带 DoH、旧 DNS 缓存或直接使用 IP 的程序，在域名分流模式下不能可靠匹配域名组，整机全局不依赖域名匹配。应用缓存的 FakeIP 在关闭 TUN 后可能需要重新连接或重启该应用。
+
+正常关闭、启动失败或 TUN 进程异常退出时恢复 `/etc/resolv.conf` 原文件或符号链接，并清理本服务的路由/nftables。本机接管不会自动开机启动；DNS 恢复服务会在重启后恢复上次意外中断的配置。重启后先完成学校登录，再从菜单 9 开启。VPN 会话或 worker 单独断开时，仍运行的 TUN 不把应走 VPN 的流量回退直连；**若 TUN 服务本身退出，会恢复普通网络，此功能不是永久断网保护开关。**
+
+紧急恢复普通网络：
+
+```bash
+sudo systemctl stop academic-vpn-host.service
+```
+
+所有私人 TUN 配置、DNS 备份和状态位于原 state 下的 `host/`，不进入仓库。若 DNS 被其他软件同时修改，恢复程序会保留其修改和备份并报告冲突，不强行覆盖。
+
 ### 普通节点：不需要 VPN、不需要分流
 
 ```bash

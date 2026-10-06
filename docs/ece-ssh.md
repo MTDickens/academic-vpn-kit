@@ -21,3 +21,7 @@ SSH 不会因为浏览器用了系统代理就自动走代理。这里显式使�
 如果把节点加入自己的 Clash 配置，确保 `cmu.edu` 被送往本节点，例如将 `DOMAIN-SUFFIX,cmu.edu,你的节点或代理组名称` 放在通用直连规则之前。本示例使用 SOCKS 传入域名；直接使用内网 IP、只开启浏览器代理，或让 TUN 在本地丢失域名信息，不等同于这条已验证的路径。
 
 当前验证范围：两种 VLESS 服务端均通过现有 CMU VPN 收到 `ece017.ece.local.cmu.edu:22` 的 SSH 握手；未登录学校账号，未验证 GPU 作业或账号权限。其他节点和 GPU 使用方式请以 [ECE Linux 资源指南](https://cmu-enterprise.atlassian.net/wiki/spaces/ITS/pages/3549888534/ECE%2BLinux%2BComputing%2BResources%2BGuide) 为准。
+
+## 直接在这台 Linux 上使用
+
+服务器菜单 9 选择“本机分流”（CMU 组开启）或“本机全局”后，在 Linux 上可以直接执行 `ssh 你的AndrewID@ece005.ece.local.cmu.edu`，无需 SOCKS ProxyCommand。它使用该 Linux 上的 TUN 和 DNS；不影响 Mac 上仍需自己的代理设置。测试时 `ece005` 可用，节点可达性会变化，可根据学校列表更换主机。

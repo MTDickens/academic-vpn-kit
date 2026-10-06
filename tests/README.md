@@ -35,3 +35,13 @@ Independent rule groups:
 This uses a local recording SOCKS5 server and temporary VLESS gateway/client pairs to test all four academic/CMU switch combinations on both backends. It verifies enabled domains reach the upstream as hostnames (including an ECE-style name), disabled groups do not use the upstream, and generated configurations pass the native validators. It does not require a VPN login. REALITY handshake traffic may contact the configured public handshake host.
 
 Additional regression tests verify group persistence through all/none scopes, same-scope toggles, legacy migration, custom policy priority, an empty selection, and extensible group definitions. With the existing authenticated CMU worker, both temporary VLESS gateway backends also returned an SSH greeting from `ece017.ece.local.cmu.edu:22`; no school account login or GPU job was performed.
+
+Linux host routing:
+
+```bash
+/usr/bin/python3 tests/integration_host.py
+```
+
+Requires root, installed binaries and an authenticated internal VPN in the default state (or pass `--state`). It creates a disposable network namespace and per-namespace resolver configuration. It tests unproxied curl exits, DNS/ECE SSH, UDP STUN, unavailable-VPN isolation and route cleanup in host rules/all modes, while keeping the real host's routes and DNS unchanged. ECE node availability and public test services are external dependencies.
+
+Live-host validation on this Ubuntu machine also passed: ordinary curl used the VPN exit in all mode; ordinary traffic used the VPS exit while ECE worked in rules mode; current SSH retained its physical route; the worker PID stayed unchanged; normal stop restored the original resolver symlink and exit. A forced TUN-process SIGKILL also restored DNS, IPv4/IPv6 policy rules and nftables. The host was returned to off after tests. These live mutation checks are intentionally not run automatically by the namespace test.

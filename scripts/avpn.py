@@ -621,6 +621,8 @@ def deploy(args):
         occupied_by_own_worker = service == worker and before[worker] and port in previous_ports
         if not occupied_by_own_gateway and not occupied_by_own_worker and not free_port(port):
             raise ValueError(f'端口 {port} 已被占用。产物已生成；请选择其他端口或自行停止旧服务后再 deploy。')
+    import host_network
+    host_network.pause_for_deploy(sys.modules[__name__], args)
     for service in services:
         shutil.copyfile(args.state / 'units' / service, UNIT_DIR / service)
     run(['systemctl', 'daemon-reload'])
@@ -695,8 +697,11 @@ def auth(args):
     command = [args.state / 'bin/sing-box', 'api', '--url', f"http://127.0.0.1:{settings['api_port']}", 'openconnect']
     current = run(command + ['status'], capture_output=True, text=True)
     if re.search(r'^State:\s+connected\s*$', current.stdout, re.MULTILINE):
-        print('VPN 已连接，无需重复认证'); return
-    run(command + ['auth'])
+        print('VPN 已连接，无需重复认证')
+    else:
+        run(command + ['auth'])
+    import host_network
+    host_network.resume_after_auth(sys.modules[__name__], args)
 
 
 def stop(args):
@@ -714,6 +719,8 @@ def stop(args):
 def status(args):
     settings = json.loads((args.state / 'settings.json').read_text())
     print('路由模式: ' + settings['mode'] + '; VPN类型: ' + settings['vpn_kind'])
+    import host_network
+    print('Linux 本机网络: ' + dict(host_network.MODES)[host_network.current_mode(args.state)])
     if 'groups' in settings:
         groups = resolve_groups(settings['groups'])
         print('分流开关（rules 时生效）: ' + '；'.join(
@@ -741,7 +748,7 @@ def doctor(args):
         if any(c in pair for c in '\r\n\x00'):
             raise ValueError('SOCKS 凭据不能含换行或 NUL')
         curl_input = 'proxy-user = ' + json.dumps(pair) + '\n'
-    probes = [('服务器出口', [], 'https://api.ipify.org')]
+    probes = [('本机当前出口', [], 'https://api.ipify.org')]
     if settings['mode'] != 'none':
         probes += [
                              ('VPN出口', ['--proxy', proxy], 'https://api.ipify.org'),
