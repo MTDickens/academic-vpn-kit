@@ -19,9 +19,9 @@ INTERFACE = 'avpn-host'
 DNS_ADDRESS = '198.18.0.2'
 RESOLV = Path('/etc/resolv.conf')
 RESOLVER_TEXT = '# Managed by academic-vpn-host; restored on stop.\nnameserver 198.18.0.2\noptions timeout:2 attempts:2\n'
-MODES = [('off', '仅代理：不接管 Linux 本机网络'),
-         ('rules', '本机分流：沿用学术 / CMU 等规则组'),
-         ('all', '本机全局：TCP/UDP 全部走 VPN')]
+CAPTURE_CHOICES = [(False, '关闭：只处理进入代理的流量'),
+                   (True, '开启：也接管 Linux 本机流量')]
+POLICIES = {'none': '关闭 VPN', 'rules': '按规则分流', 'all': '全部走 VPN'}
 
 
 def run(command, **kwargs):
@@ -33,9 +33,27 @@ def active():
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
-def current_mode(state):
+def capture_settings(state):
     path = state / 'host/settings.json'
-    return json.loads(path.read_text())['mode'] if path.exists() and active() else 'off'
+    saved = json.loads(path.read_text()) if path.exists() else {}
+    # Legacy off/rules/all combined capture and policy. Only migrate the capture
+    # choice; the shared settings.json is now the single source of policy.
+    if 'enabled' not in saved:
+        mode = saved.pop('mode', 'off')
+        saved['enabled'] = mode != 'off'
+        if mode != 'off':
+            saved['applied_mode'] = mode
+    return saved
+
+
+def capture_enabled(state):
+    return capture_settings(state)['enabled']
+
+
+def status_text(state):
+    if not capture_enabled(state):
+        return '关闭（只处理代理流量）'
+    return '开启（沿用 VPN 出口策略）' if active() else '开启；暂未运行（VPN 关闭或等待登录/恢复）'
 
 
 def inspect_network(args):
@@ -83,7 +101,8 @@ def inspect_network(args):
             'vpn_hostname': hostname, 'vpn_port': settings['vpn_port']}
 
 
-def build_config(kit, args, mode, network, netns=None):
+def build_config(kit, args, network, netns=None):
+    mode = args.mode
     if mode not in {'rules', 'all'}:
         raise ValueError('无效本机接管模式')
     tun = {'type': 'tun', 'tag': 'host-tun', 'interface_name': INTERFACE,
@@ -262,14 +281,16 @@ def cleanup(state):
     dns_off(state)
 
 
-def stop(kit, args):
+def stop(kit, args, preserve_choice=False):
     path = owned_unit(kit, args.state)
     if path.exists():
         run(['systemctl', 'stop', SERVICE])
     cleanup(args.state)
-    kit.dump(args.state / 'host/settings.json', {'mode': 'off'})
+    if not preserve_choice:
+        kit.dump(args.state / 'host/settings.json', {'enabled': False})
     (args.state / 'host/resume.json').unlink(missing_ok=True)
-    print('本机网络接管已关闭，原 DNS 和普通出口已恢复；代理节点继续运行。')
+    action = '暂停（保留开关）' if preserve_choice else '关闭'
+    print('本机网络接管已' + action + '，原 DNS 和普通出口已恢复；代理节点继续运行。')
 
 
 def verify_free_network_slots():
@@ -288,11 +309,17 @@ def verify_free_network_slots():
             raise ValueError('本机接管预留路由表已被占用')
 
 
-def apply(kit, args, mode):
+def apply(kit, args, enabled):
     if sys.platform != 'linux' or os.geteuid() != 0:
         raise ValueError('本机网络接管需要 Linux root')
-    if mode == 'off':
+    if not enabled:
         stop(kit, args)
+        return
+    mode = args.mode
+    if mode == 'none':
+        stop(kit, args, preserve_choice=True)
+        kit.dump(args.state / 'host/settings.json', {'enabled': True})
+        print('本机接管开关已开启；当前 VPN 关闭，暂用普通网络。启用 VPN 并登录后自动应用。')
         return
     for command in ['ip', 'ss', 'nft', 'systemctl', 'systemd-run', 'curl']:
         if not shutil.which(command):
@@ -305,9 +332,9 @@ def apply(kit, args, mode):
         raise ValueError('本机 DNS 恢复服务属于其他部署')
     was_active = active()
     if was_active:
-        stop(kit, args)
+        stop(kit, args, preserve_choice=True)
     network = inspect_network(args)
-    config = build_config(kit, args, mode, network)
+    config = build_config(kit, args, network)
     vpn_exit = run(['curl', '-fsS', '--noproxy', '', '--max-time', '20',
                     '--proxy', f"socks5h://127.0.0.1:{network['vpn_port']}", 'https://api.ipify.org'],
                    capture_output=True, text=True).stdout.strip()
@@ -332,34 +359,35 @@ def apply(kit, args, mode):
                         capture_output=True, text=True).stdout.strip()
         if mode == 'all' and host_exit != vpn_exit:
             raise ValueError('本机出口未进入 VPN，已取消网络接管')
-        kit.dump(directory / 'settings.json', {'mode': mode, 'network': network})
+        kit.dump(directory / 'settings.json', {'enabled': True, 'applied_mode': mode, 'network': network})
     except BaseException:
         subprocess.run(['systemctl', 'stop', SERVICE])
         cleanup(args.state)
-        kit.dump(directory / 'settings.json', {'mode': 'off'})
+        kit.dump(directory / 'settings.json', {'enabled': True})
         raise
     finally:
         subprocess.run(['systemctl', 'stop', timer + '.timer'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print('本机网络已切换：' + dict(MODES)[mode])
-    print('关闭入口：sudo ' + str(kit.ROOT / 'entrypoint.sh') + ' → 本机网络 → 仅代理')
+    (args.state / 'host/resume.json').unlink(missing_ok=True)
+    print('本机网络接管已开启；VPN 出口策略：' + POLICIES[mode])
+    print('关闭入口：sudo ' + str(kit.ROOT / 'entrypoint.sh') + ' → 接管 Linux 本机网络 → 关闭')
 
 
 def pause_for_deploy(kit, args):
-    mode = current_mode(args.state)
-    if mode != 'off':
-        stop(kit, args)
-        if args.mode != 'none' and args.vpn_kind == 'openconnect':
-            kit.dump(args.state / 'host/resume.json', {'mode': mode})
-        else:
-            (args.state / 'host/resume.json').unlink(missing_ok=True)
+    if capture_enabled(args.state):
+        # Keep the capture preference across policy changes, including none.
+        # Resumption always reads the new shared policy, never the old host mode.
+        if active():
+            stop(kit, args, preserve_choice=True)
+        kit.dump(args.state / 'host/settings.json', {'enabled': True})
+        kit.dump(args.state / 'host/resume.json', {'enabled': True})
 
 
 def resume_after_auth(kit, args):
-    pending = args.state / 'host/resume.json'
-    if pending.exists():
-        mode = json.loads(pending.read_text())['mode']
-        apply(kit, args, mode)
-        pending.unlink(missing_ok=True)
+    if capture_enabled(args.state) and args.mode != 'none' and args.vpn_kind == 'openconnect':
+        saved = capture_settings(args.state)
+        if active() and saved.get('applied_mode') == args.mode and not (args.state / 'host/resume.json').exists():
+            return
+        apply(kit, args, True)
 
 
 def main():

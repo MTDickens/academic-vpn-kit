@@ -65,14 +65,15 @@ class HostNetworkTests(unittest.TestCase):
     def test_host_routing_reuses_groups_and_preserves_control_plane(self):
         with tempfile.TemporaryDirectory() as td:
             args = avpn.resolve_args(avpn.parser().parse_args(['status', '--state', td,
-                '--groups', '{"academic":false,"cmu":true}']))
+                '--mode', 'rules', '--groups', '{"academic":false,"cmu":true}']))
             network = {'interface': 'eth0', 'exclude': ['203.0.113.7/32'],
                        'vpn_dns': '128.2.1.10', 'vpn_hostname': 'vpn.cmu.edu', 'vpn_port': 12080}
-            rules = hn.build_config(avpn, args, 'rules', network)
+            rules = hn.build_config(avpn, args, network)
             selected = [r for r in rules['route']['rules'] if r.get('outbound') == 'vpn']
             self.assertEqual(selected[0]['domain_suffix'], ['cmu.edu'])
             self.assertEqual(rules['route']['final'], 'direct')
-            all_config = hn.build_config(avpn, args, 'all', network)
+            args.mode = 'all'
+            all_config = hn.build_config(avpn, args, network)
             self.assertEqual(all_config['route']['final'], 'vpn')
             self.assertEqual(all_config['dns']['final'], 'vpn-dns')
             self.assertEqual(all_config['inbounds'][0]['route_exclude_address'], network['exclude'])
@@ -82,20 +83,67 @@ class HostNetworkTests(unittest.TestCase):
 
     def test_host_wizard_only_asks_scope(self):
         with tempfile.TemporaryDirectory() as td:
-            with patch('builtins.input', side_effect=['', '9', '3']) as prompt:
+            with patch('builtins.input', side_effect=['', '9', '2']) as prompt:
                 args, credentials = wizard.collect(avpn, Path(td))
             self.assertEqual(prompt.call_count, 3)
             self.assertEqual(args.command, 'host-network')
-            self.assertEqual(args.host_mode, 'all')
+            self.assertTrue(args.host_enabled)
             self.assertIsNone(credentials)
 
-    def test_deployment_pauses_host_and_resumes_after_auth(self):
+    def test_legacy_choices_migrate_without_changing_shared_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td)
+            for mode in ['off', 'rules', 'all']:
+                avpn.dump(state / 'host/settings.json', {'mode': mode})
+                self.assertEqual(hn.capture_enabled(state), mode != 'off')
+                self.assertNotIn('mode', hn.capture_settings(state))
+            with patch('builtins.input', side_effect=['', '9', '']) as prompt:
+                args, _ = wizard.collect(avpn, state)
+                self.assertTrue(args.host_enabled)
+                self.assertEqual(prompt.call_count, 3)
+
+    def test_deployment_resumes_with_new_policy_and_preserves_capture_across_none(self):
         with tempfile.TemporaryDirectory() as td:
             args = avpn.resolve_args(avpn.parser().parse_args(['status', '--state', td, '--mode', 'rules']))
-            with patch.object(hn, 'current_mode', return_value='all'), patch.object(hn, 'stop') as stop:
+            avpn.dump(args.state / 'host/settings.json', {'mode': 'rules'})
+            for mode in ['all', 'none', 'rules']:
+                args.mode = mode
+                with patch.object(hn, 'active', return_value=True), patch.object(hn, 'stop') as stop:
+                    hn.pause_for_deploy(avpn, args)
+                    stop.assert_called_once_with(avpn, args, preserve_choice=True)
+                self.assertTrue(hn.capture_enabled(args.state))
+                self.assertNotIn('mode', json.loads((args.state / 'host/resume.json').read_text()))
+                with patch.object(hn, 'apply') as apply:
+                    hn.resume_after_auth(avpn, args)
+                    if mode == 'none':
+                        apply.assert_not_called()
+                    else:
+                        apply.assert_called_once_with(avpn, args, True)
+                        self.assertEqual(apply.call_args.args[1].mode, mode)
+
+    def test_disabled_capture_does_not_resume_when_policy_changes(self):
+        with tempfile.TemporaryDirectory() as td:
+            args = avpn.resolve_args(avpn.parser().parse_args(['status', '--state', td, '--mode', 'all']))
+            avpn.dump(args.state / 'host/settings.json', {'enabled': False})
+            with patch.object(hn, 'apply') as apply, patch.object(hn, 'stop') as stop:
                 hn.pause_for_deploy(avpn, args)
-                stop.assert_called_once()
-            with patch.object(hn, 'apply') as apply:
                 hn.resume_after_auth(avpn, args)
-                apply.assert_called_once_with(avpn, args, 'all')
-            self.assertFalse((args.state / 'host/resume.json').exists())
+                apply.assert_not_called()
+                stop.assert_not_called()
+
+    def test_enable_while_vpn_off_saves_choice_without_starting_tun(self):
+        with tempfile.TemporaryDirectory() as td:
+            args = avpn.resolve_args(avpn.parser().parse_args(['status', '--state', td, '--mode', 'none']))
+            with patch.object(hn.os, 'geteuid', return_value=0), patch.object(hn, 'stop') as stop, patch.object(hn, 'inspect_network') as inspect:
+                hn.apply(avpn, args, True)
+                stop.assert_called_once_with(avpn, args, preserve_choice=True)
+                inspect.assert_not_called()
+            self.assertTrue(hn.capture_enabled(args.state))
+
+    def test_auth_does_not_restart_an_unchanged_running_capture(self):
+        with tempfile.TemporaryDirectory() as td:
+            args = avpn.resolve_args(avpn.parser().parse_args(['status', '--state', td, '--mode', 'rules']))
+            avpn.dump(args.state / 'host/settings.json', {'enabled': True, 'applied_mode': 'rules'})
+            with patch.object(hn, 'active', return_value=True), patch.object(hn, 'apply') as apply:
+                hn.resume_after_auth(avpn, args)
+                apply.assert_not_called()

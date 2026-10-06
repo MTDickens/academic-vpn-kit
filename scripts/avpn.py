@@ -720,7 +720,7 @@ def status(args):
     settings = json.loads((args.state / 'settings.json').read_text())
     print('路由模式: ' + settings['mode'] + '; VPN类型: ' + settings['vpn_kind'])
     import host_network
-    print('Linux 本机网络: ' + dict(host_network.MODES)[host_network.current_mode(args.state)])
+    print('Linux 本机网络: ' + host_network.status_text(args.state))
     if 'groups' in settings:
         groups = resolve_groups(settings['groups'])
         print('分流开关（rules 时生效）: ' + '；'.join(

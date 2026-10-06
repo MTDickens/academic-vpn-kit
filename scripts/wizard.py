@@ -65,13 +65,13 @@ def configure_vpn(args):
     return credentials
 
 
-MODES = [('none', '关闭 VPN，普通代理节点'),
+MODES = [('none', '关闭 VPN，使用普通出口'),
          ('rules', '按独立规则组分流（学术、CMU 等）'),
-         ('all', '全部代理流量走 VPN（不接管服务器自身网络）')]
+         ('all', '全部流量走 VPN（在已选择的接管范围内）')]
 
 
 def select_mode(current):
-    return choice('出口模式', MODES, [x[0] for x in MODES].index(current))
+    return choice('VPN 出口策略', MODES, [x[0] for x in MODES].index(current))
 
 
 def edit_groups(kit, args):
@@ -130,16 +130,16 @@ def collect(kit, initial_state):
         ('show', '查看分享链接和 Clash 配置'), ('stop', '停止本仓库的节点服务'),
         ('update-rules', '下载社区学术域名名单'),
         ('switch', '快速调整 VPN：总开关 / 学术与 CMU 独立开关'),
-        ('host-network', 'Linux 本机网络：仅代理 / 本机分流 / 本机全局')],
+        ('host-network', '接管 Linux 本机网络：独立开关')],
         7 if (state / 'deployed/settings.json').exists() else 0)
     args.command = action
     credentials = None
     if action == 'host-network':
         import host_network
-        current = host_network.current_mode(args.state)
-        print('此选项控制这台 Linux 的普通程序；代理节点的出口设置独立保留。')
-        args.host_mode = choice('本机网络', host_network.MODES,
-                                [x[0] for x in host_network.MODES].index(current))
+        current = host_network.capture_enabled(args.state)
+        print('当前 VPN 出口策略：' + dict(MODES)[args.mode])
+        print('此开关只决定是否接管本机流量；分流策略和学术 / CMU 开关在菜单 8 设置。')
+        args.host_enabled = choice('接管 Linux 本机网络', host_network.CAPTURE_CHOICES, int(current))
         return args, credentials
     if action == 'switch':
         return collect_switch(kit, args)
@@ -195,7 +195,7 @@ def wizard(kit, initial_state):
         print('\n已取消，未开始安装或部署。'); return
     if args.command == 'host-network':
         import host_network
-        host_network.apply(kit, args, args.host_mode)
+        host_network.apply(kit, args, args.host_enabled)
         return
     if args.command == 'unchanged':
         print('已是所选模式，无需修改。')

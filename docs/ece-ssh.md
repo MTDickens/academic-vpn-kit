@@ -24,4 +24,4 @@ SSH 不会因为浏览器用了系统代理就自动走代理。这里显式使�
 
 ## 直接在这台 Linux 上使用
 
-服务器菜单 9 选择“本机分流”（CMU 组开启）或“本机全局”后，在 Linux 上可以直接执行 `ssh 你的AndrewID@ece005.ece.local.cmu.edu`，无需 SOCKS ProxyCommand。它使用该 Linux 上的 TUN 和 DNS；不影响 Mac 上仍需自己的代理设置。测试时 `ece005` 可用，节点可达性会变化，可根据学校列表更换主机。
+服务器菜单 9 开启“接管 Linux 本机网络”，且菜单 8 选择按规则分流（CMU 组开启）或全部走 VPN 后，在 Linux 上可以直接执行 `ssh 你的AndrewID@ece005.ece.local.cmu.edu`，无需 SOCKS ProxyCommand。它使用该 Linux 上的 TUN 和 DNS；不影响 Mac 上仍需自己的代理设置。测试时 `ece005` 可用，节点可达性会变化，可根据学校列表更换主机。

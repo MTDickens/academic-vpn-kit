@@ -46,7 +46,8 @@ def main():
             unavailable = socket.socket()
             unavailable.bind(('127.0.0.1', 0))  # Reserved, but not listening.
             for mode in ['rules', 'all', 'unavailable']:
-                config = hn.build_config(avpn, local_args, 'all' if mode == 'unavailable' else mode, network, netns=ns)
+                local_args.mode = 'all' if mode == 'unavailable' else mode
+                config = hn.build_config(avpn, local_args, network, netns=ns)
                 if mode == 'unavailable':
                     config['outbounds'][1]['server_port'] = unavailable.getsockname()[1]
                 config['log']['level'] = 'debug'
