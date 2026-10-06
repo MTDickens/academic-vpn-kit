@@ -25,3 +25,13 @@ Validated on Ubuntu 24.04 x86_64 with sing-box 1.14.2, Xray 26.3.27 and an authe
 Not validated here: other university/provider gateways, ARM hardware, a fresh-machine systemd deployment, complete browser-helper GUI authentication, and paid full-text access. The browser helper has unit checks but still needs a real local GUI run.
 
 Quick-switch regression tests exercise rules → all → none → rules while preserving identity, share-link connection parameters and ordered policy, avoiding installer calls, and asking only the mode. They also cover unchanged-mode no-op, first-time VPN setup and missing installation. Deployment and authentication are mocked for these tests.
+
+Independent rule groups:
+
+```bash
+/usr/bin/python3 tests/integration_groups.py --bin-dir /private/state/bin
+```
+
+This uses a local recording SOCKS5 server and temporary VLESS gateway/client pairs to test all four academic/CMU switch combinations on both backends. It verifies enabled domains reach the upstream as hostnames (including an ECE-style name), disabled groups do not use the upstream, and generated configurations pass the native validators. It does not require a VPN login. REALITY handshake traffic may contact the configured public handshake host.
+
+Additional regression tests verify group persistence through all/none scopes, same-scope toggles, legacy migration, custom policy priority, an empty selection, and extensible group definitions. With the existing authenticated CMU worker, both temporary VLESS gateway backends also returned an SSH greeting from `ece017.ece.local.cmu.edu:22`; no school account login or GPU job was performed.

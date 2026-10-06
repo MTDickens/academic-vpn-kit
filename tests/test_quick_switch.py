@@ -33,9 +33,9 @@ class QuickSwitchTests(unittest.TestCase):
                  patch.object(avpn, 'check'), patch.object(avpn, 'auth'), \
                  patch.object(avpn, 'deploy') as deploy, patch.object(wizard.os, 'geteuid', return_value=0):
                 for number, mode in [('3', 'all'), ('1', 'none'), ('2', 'rules')]:
-                    with patch('builtins.input', side_effect=['', '', number]) as prompt:
+                    with patch('builtins.input', side_effect=['', '', number] + ([''] if mode == 'rules' else [])) as prompt:
                         wizard.wizard(avpn, state)
-                    self.assertEqual(prompt.call_count, 3)
+                    self.assertEqual(prompt.call_count, 4 if mode == 'rules' else 3)
                     settings = json.loads((state / 'settings.json').read_text())
                     self.assertEqual(settings['mode'], mode)
                     self.assertEqual(settings['backend'], 'xray')
@@ -63,9 +63,9 @@ class QuickSwitchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             state = Path(td) / 'state'
             self.installed(state)
-            with patch('builtins.input', side_effect=['', '', '2', '1']) as prompt:
+            with patch('builtins.input', side_effect=['', '', '2', '', '1']) as prompt:
                 args, credentials = wizard.collect(avpn, state)
-            self.assertEqual(prompt.call_count, 4)
+            self.assertEqual(prompt.call_count, 5)
             self.assertEqual(args.vpn_server, 'https://vpn.cmu.edu')
             self.assertEqual(args.auth_group, 'Full VPN')
             self.assertIsNone(credentials)
@@ -75,3 +75,35 @@ class QuickSwitchTests(unittest.TestCase):
             with patch('builtins.input', side_effect=['', '8']):
                 with self.assertRaisesRegex(ValueError, '安装或更新节点'):
                     wizard.collect(avpn, Path(td))
+
+    def test_group_toggle_in_current_rules_mode_is_applied_and_remembered(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / 'state'
+            self.installed(state, '--mode', 'rules', '--vpn-server', 'https://vpn.cmu.edu')
+            with patch.object(avpn, 'check'), patch.object(avpn, 'auth'), \
+                 patch.object(avpn, 'deploy') as deploy, patch.object(wizard.os, 'geteuid', return_value=0):
+                # Keep rules mode, toggle academic off, leave CMU on, apply.
+                with patch('builtins.input', side_effect=['', '', '', '1', '']):
+                    wizard.wizard(avpn, state)
+                self.assertEqual(json.loads((state / 'settings.json').read_text())['groups'],
+                                 {'academic': False, 'cmu': True})
+                self.assertEqual(deploy.call_count, 1)
+                # Temporarily disable VPN, then return to rules; group choices survive.
+                for answers in [['', '', '1'], ['', '', '2', '']]:
+                    with patch('builtins.input', side_effect=answers):
+                        wizard.wizard(avpn, state)
+                self.assertEqual(json.loads((state / 'settings.json').read_text())['groups'],
+                                 {'academic': False, 'cmu': True})
+
+    def test_legacy_deployment_applies_new_defaults_even_when_mode_unchanged(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / 'state'
+            self.installed(state, '--mode', 'rules', '--vpn-server', 'https://vpn.cmu.edu')
+            for path in [state / 'settings.json', state / 'deployed/settings.json']:
+                saved = json.loads(path.read_text())
+                saved.pop('groups')
+                path.write_text(json.dumps(saved))
+            with patch('builtins.input', side_effect=['', '', '', '']):
+                args, _ = wizard.collect(avpn, state)
+            self.assertEqual(args.command, 'switch')
+            self.assertEqual(args.groups, {'academic': True, 'cmu': True})

@@ -172,13 +172,48 @@ def domains(path):
     return sorted(suffix), sorted(exact)
 
 
-def apply_policy(sb, xr, policy):
+def group_definitions():
+    return json.loads((ROOT / 'rules/groups.json').read_text())
+
+
+def resolve_groups(groups=None):
+    definitions = group_definitions()
+    if groups is None:
+        groups = {}
+    if not isinstance(groups, dict) or set(groups) - set(definitions):
+        raise ValueError('分流开关包含未知规则组')
+    if any(type(value) is not bool for value in groups.values()):
+        raise ValueError('分流开关必须是 true/false')
+    return {key: groups.get(key, definition['default']) for key, definition in definitions.items()}
+
+
+def selected_domains(args):
+    suffix, exact = set(), set()
+    for key, definition in group_definitions().items():
+        if not args.groups[key]:
+            continue
+        if 'file' in definition:
+            path = args.rules if definition['file'] == '$academic' else ROOT / 'rules' / definition['file']
+            group_suffix, group_exact = domains(path)
+            suffix.update(group_suffix); exact.update(group_exact)
+        for domain in definition.get('domains', []):
+            value = domain.removeprefix('full:').lower()
+            if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', value):
+                raise ValueError('无效规则组域名: ' + key)
+            (exact if domain.startswith('full:') else suffix).add(value)
+    return sorted(suffix), sorted(exact)
+
+
+def apply_policy(sb, xr, policy, selected=((), ())):
     """Ordered hostname exceptions; same first-match semantics on both backends."""
     if set(policy) != {'default', 'rules'} or policy['default'] not in {'direct', 'vpn'}:
         raise ValueError('policy 需要 rules 数组和 default: direct/vpn')
     if not isinstance(policy['rules'], list):
         raise ValueError('policy.rules 必须为数组')
-    sb_rules, xr_rules = sb['route']['rules'][:2], xr['routing']['rules'][:1]
+    # Match explicit domains before rejecting literal private IP destinations.
+    # SOCKS5 forwards the hostname to the VPN worker for internal DNS resolution.
+    sb_private, xr_private = sb['route']['rules'][1], xr['routing']['rules'][0]
+    sb_rules, xr_rules = sb['route']['rules'][:1], []
     for rule in policy['rules']:
         if set(rule) != {'domains', 'outbound'} or rule['outbound'] not in {'direct', 'vpn', 'block'}:
             raise ValueError('policy 每条规则需要 domains 和 outbound: direct/vpn/block')
@@ -201,6 +236,14 @@ def apply_policy(sb, xr, policy):
         sb_rules.append(sr)
         xr_rules.append({'type': 'field', 'domain': ['domain:' + x for x in suffix] +
                          ['full:' + x for x in exact], 'outboundTag': tag})
+    suffix, exact = selected
+    if suffix or exact:
+        sb_rules.append({'domain_suffix': list(suffix), 'domain': list(exact),
+                         'action': 'route', 'outbound': 'vpn-proxy'})
+        xr_rules.append({'type': 'field', 'domain': ['domain:' + x for x in suffix] +
+                         ['full:' + x for x in exact], 'outboundTag': 'vpn-proxy'})
+    sb_rules.append(sb_private)
+    xr_rules.append(xr_private)
     default = 'direct' if policy['default'] == 'direct' else 'vpn-proxy'
     sb['route'].update({'rules': sb_rules, 'final': default})
     sb['route'].pop('rule_set', None)
@@ -322,8 +365,8 @@ def _generate(args):
     d = identity(args)
     if d['port'] in {args.vpn_port, args.api_port} and args.mode != 'none' and args.vpn_kind == 'openconnect':
         raise ValueError('入口和 VPN 本地端口冲突')
-    uses_list = args.mode == 'rules' and not (args.policy and args.policy != 'none')
-    suffix, exact = domains(args.rules) if uses_list else ([], [])
+    args.groups = resolve_groups(getattr(args, 'groups', None))
+    suffix, exact = selected_domains(args) if args.mode == 'rules' else ([], [])
     rules_path = args.state / 'rules/scholar.json'
     dump(rules_path, {'version': 3, 'rules': [{'domain_suffix': suffix, 'domain': exact}]})
     if Path(args.rules).exists():
@@ -332,7 +375,7 @@ def _generate(args):
         'vpn_port': args.vpn_port, 'api_port': args.api_port, 'mode': args.mode,
         'vpn_kind': args.vpn_kind, 'vpn_flavor': args.vpn_flavor,
         'upstream_host': args.upstream_host, 'upstream_port': args.upstream_port,
-        'backend': args.backend or 'sing-box'})
+        'backend': args.backend or 'sing-box', 'groups': args.groups})
     vpn = {'log': {'level': 'info', 'timestamp': True},
         'inbounds': [{'type': 'socks', 'tag': 'vpn-socks', 'listen': '127.0.0.1', 'listen_port': args.vpn_port}],
         'endpoints': [{'type': 'openconnect', 'tag': 'upstream-vpn', 'system': False,
@@ -387,10 +430,12 @@ def _generate(args):
         sb['route'].pop('rule_set')
         sb['route']['final'] = 'vpn-proxy'
         xr['routing']['rules'][1] = {'type': 'field', 'network': 'tcp,udp', 'outboundTag': 'vpn-proxy'}
-    if args.mode == 'rules' and args.policy and args.policy != 'none':
-        policy = json.loads(Path(args.policy).read_text())
-        apply_policy(sb, xr, policy)
-        dump(args.state / 'rules/policy.json', policy)
+    if args.mode == 'rules':
+        policy = {'default': 'direct', 'rules': []}
+        if args.policy and args.policy != 'none':
+            policy = json.loads(Path(args.policy).read_text())
+            dump(args.state / 'rules/policy.json', policy)
+        apply_policy(sb, xr, policy, (suffix, exact))
     if args.vpn_kind == 'socks' and args.mode != 'none':
         secret_path = args.state / 'upstream-secrets.json'
         if secret_path.exists():
@@ -669,6 +714,13 @@ def stop(args):
 def status(args):
     settings = json.loads((args.state / 'settings.json').read_text())
     print('路由模式: ' + settings['mode'] + '; VPN类型: ' + settings['vpn_kind'])
+    if 'groups' in settings:
+        groups = resolve_groups(settings['groups'])
+        print('分流开关（rules 时生效）: ' + '；'.join(
+            definition['name'] + ('：开' if groups[key] else '：关')
+            for key, definition in group_definitions().items()))
+    else:
+        print('当前为旧版配置；请进入快速调整菜单应用新的独立规则组。')
     if settings['mode'] == 'none' or settings['vpn_kind'] != 'openconnect':
         return
     run([args.state / 'bin/sing-box', 'api', '--url', f"http://127.0.0.1:{settings['api_port']}",
@@ -762,6 +814,7 @@ def parser():
     p.add_argument('--vpn-port', type=int)
     p.add_argument('--api-port', type=int)
     p.add_argument('--rules', type=Path)
+    p.add_argument('--groups', type=json.loads, help='规则组开关 JSON；正常使用交互菜单')
     p.add_argument('--policy', help='有序域名例外 JSON；none 恢复单名单分流')
     p.add_argument('--profile', type=Path, help='公开提供商参数 JSON，不包含凭据')
     return p
@@ -775,7 +828,7 @@ def resolve_args(args):
     old_settings = json.loads((args.state / 'settings.json').read_text()) if (args.state / 'settings.json').exists() else {}
     defaults = {'mode': 'none', 'vpn_kind': 'openconnect', 'vpn_flavor': 'anyconnect',
                 'vpn_server': '', 'auth_group': '', 'upstream_host': '127.0.0.1', 'upstream_port': 1080,
-                'vpn_port': 12080, 'api_port': 12081, 'backend': 'sing-box'}
+                'vpn_port': 12080, 'api_port': 12081, 'backend': 'sing-box', 'groups': None}
     profile = json.loads(args.profile.read_text()) if args.profile else {}
     if not isinstance(profile, dict) or set(profile) - set(defaults):
         raise ValueError('profile 包含不支持的字段')
@@ -787,6 +840,7 @@ def resolve_args(args):
                           'vpn_flavor': {'anyconnect', 'gp', 'fortinet', 'f5', 'pulse', 'nc'}}.items():
         if getattr(args, key) not in choices:
             raise ValueError('profile 中无效的 ' + key)
+    args.groups = resolve_groups(args.groups)
     old_policy = args.state / 'rules/policy.json'
     if args.policy is None and old_policy.exists():
         args.policy = str(old_policy)

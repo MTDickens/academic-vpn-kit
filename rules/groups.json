@@ -1,0 +1,12 @@
+{
+  "academic": {
+    "name": "学术网站 / 当前域名名单",
+    "default": true,
+    "file": "$academic"
+  },
+  "cmu": {
+    "name": "CMU：cmu.edu 及其所有子域名",
+    "default": true,
+    "domains": ["cmu.edu"]
+  }
+}

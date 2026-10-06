@@ -66,12 +66,33 @@ def configure_vpn(args):
 
 
 MODES = [('none', '关闭 VPN，普通代理节点'),
-         ('rules', '按现有名单/规则分流（默认学术名单）'),
+         ('rules', '按独立规则组分流（学术、CMU 等）'),
          ('all', '全部代理流量走 VPN（不接管服务器自身网络）')]
 
 
 def select_mode(current):
     return choice('出口模式', MODES, [x[0] for x in MODES].index(current))
+
+
+def edit_groups(kit, args):
+    definitions = kit.group_definitions()
+    keys = list(definitions)
+    print('各规则组独立开关；命中任一开启组就走 VPN，其余走普通出口。')
+    if args.policy and args.policy != 'none':
+        print('已有自定义有序规则优先；它们的显式出口及默认出口仍然生效。')
+    while True:
+        print('\n分流开关（输入编号切换，回车应用）：')
+        for i, key in enumerate(keys, 1):
+            print(f'  {i}. [{"开" if args.groups[key] else "关"}] {definitions[key]["name"]}')
+        print('  0. 应用当前选择（默认）')
+        answer = ask('选择', '0')
+        if answer == '0':
+            return
+        if answer.isdigit() and 1 <= int(answer) <= len(keys):
+            key = keys[int(answer) - 1]
+            args.groups[key] = not args.groups[key]
+        else:
+            print('请输入菜单中的数字。')
 
 
 def collect_switch(kit, args):
@@ -80,8 +101,13 @@ def collect_switch(kit, args):
         raise ValueError('此目录没有完整的已安装节点，请先选择“安装或更新节点”')
     print('当前模式：' + dict(MODES)[args.mode])
     previous = args.mode
+    previous_groups = args.groups.copy()
+    saved = json.loads((args.state / 'deployed/settings.json').read_text())
+    needs_group_update = saved.get('groups') != args.groups
     args.mode = select_mode(previous)
-    if args.mode == previous:
+    if args.mode == 'rules':
+        edit_groups(kit, args)
+    if args.mode == previous and args.groups == previous_groups and not needs_group_update:
         args.command = 'unchanged'
         return args, None
     credentials = None
@@ -103,7 +129,7 @@ def collect(kit, initial_state):
         ('auth', '登录/重新登录 VPN'), ('doctor', '查看状态并检查连接'),
         ('show', '查看分享链接和 Clash 配置'), ('stop', '停止本仓库的节点服务'),
         ('update-rules', '下载社区学术域名名单'),
-        ('switch', '快速切换出口模式：关闭 VPN / 名单分流 / 全部走 VPN')],
+        ('switch', '快速调整 VPN：总开关 / 学术与 CMU 独立开关')],
         7 if (state / 'deployed/settings.json').exists() else 0)
     args.command = action
     credentials = None
@@ -149,6 +175,7 @@ def collect(kit, initial_state):
             args.rules = Path(ask('名单文件路径', args.rules, required=True)).expanduser()
         else:
             args.policy = ask('有序规则 JSON 路径', args.policy or '', required=True)
+        edit_groups(kit, args)
     print(f'\n准备{ "安装/更新" if action == "setup" else "生成" }：{args.backend}，端口 {args.port}，模式 {args.mode}。')
     return args, credentials
 
