@@ -124,6 +124,8 @@ def collect(kit, initial_state):
     print('VPN Route Kit：回车使用默认值；Ctrl+C 可取消。')
     state = Path(ask('私人配置目录', initial_state)).expanduser().resolve()
     args = kit.resolve_args(kit.parser().parse_args(['wizard', '--state', str(state)]))
+    import vpn_health
+    vpn_health.banner(state)
     action = choice('要做什么？', [
         ('setup', '安装或更新节点'), ('generate', '只生成配置、链接和二维码'),
         ('auth', '登录/重新登录 VPN'), ('doctor', '查看状态并检查连接'),
@@ -204,8 +206,10 @@ def wizard(kit, initial_state):
         if os.geteuid() != 0:
             raise ValueError('切换需要 root，请用 sudo ./entrypoint.sh 重新运行')
         args.upstream_credentials = credentials
-        kit.generate(args)
-        kit.deploy(args)
+        import vpn_health
+        with vpn_health.locked(args.state):
+            kit.generate(args)
+            kit.deploy(args)
         kit.auth(args)
         print('已切换为：' + dict(MODES)[args.mode] + '。客户端继续使用原节点。')
         return
@@ -224,9 +228,13 @@ def wizard(kit, initial_state):
         args.upstream_credentials = credentials
         if args.command == 'setup':
             kit.install(args)
-        kit.generate(args)
+        import vpn_health
+        with vpn_health.locked(args.state):
+            kit.generate(args)
+            if args.command == 'setup':
+                kit.deploy(args)
         if args.command == 'setup':
-            kit.deploy(args); kit.auth(args); kit.doctor(args)
+            kit.auth(args); kit.doctor(args)
         print('分享链接、二维码和配置目录：' + str(args.state / 'outputs'))
     elif args.command == 'show':
         folder = args.state / 'outputs' / args.backend

@@ -1,12 +1,14 @@
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
 spec = importlib.util.spec_from_file_location('avpn', ROOT / 'scripts/avpn.py')
 avpn = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(avpn)

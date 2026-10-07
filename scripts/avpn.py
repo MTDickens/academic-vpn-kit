@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zipfile
+import vpn_health
 
 ROOT = Path(__file__).resolve().parents[1]
 SB_VERSION = '1.14.2'
@@ -324,6 +325,7 @@ def xr_client(d):
                     'publicKey': d['public_key'], 'shortId': d['short_id'], 'spiderX': '/'}}}]}
 
 
+@vpn_health.serialized
 def generate(args):
     """Build in a private staging directory; failed generation leaves existing files intact."""
     private_dir(args.state)
@@ -617,6 +619,7 @@ def copy_generated(source, destination):
         (destination / secret.name).unlink(missing_ok=True)
 
 
+@vpn_health.serialized
 def deploy(args):
     if os.geteuid() != 0:
         raise ValueError('部署 systemd 需要 root')
@@ -719,9 +722,14 @@ def deploy(args):
     finally:
         if next_snapshot.exists():
             shutil.rmtree(next_snapshot)
-    print('已启动。VPN 未认证时，指定走 VPN 的连接会失败，不自动直连。')
+    vpn_health.install(sys.modules[__name__], args)
+    if uses_worker:
+        print('已启动。后台探测连续失败时将自动改用普通出口；VPN 恢复后恢复原分流。')
+    else:
+        print('已启动。当前未启用内置 VPN 健康监测。')
 
 
+@vpn_health.serialized
 def prepare_auth(args, command):
     current = run(command + ['status'], capture_output=True, text=True)
     if not re.search(r'^State:\s+error\s*$', current.stdout, re.MULTILINE):
@@ -765,9 +773,12 @@ def auth(args):
     else:
         run(command + ['auth'])
     import host_network
-    host_network.resume_after_auth(sys.modules[__name__], args)
+    with vpn_health.locked(args.state):
+        if vpn_health.after_auth(sys.modules[__name__], args):
+            host_network.resume_after_auth(sys.modules[__name__], args)
 
 
+@vpn_health.serialized
 def stop(args):
     if os.geteuid() != 0:
         raise ValueError('停止服务需要 root')
@@ -781,6 +792,7 @@ def stop(args):
 
 
 def status(args):
+    vpn_health.banner(args.state)
     settings = json.loads((args.state / 'settings.json').read_text())
     print('路由模式: ' + settings['mode'] + '; VPN类型: ' + settings['vpn_kind'])
     import host_network
@@ -936,7 +948,10 @@ def main():
                'auth': auth, 'status': status, 'doctor': doctor, 'units': units,
                'update-rules': update_community, 'stop': stop}
     if args.command == 'setup':
-        install(args); generate(args); deploy(args); auth(args); doctor(args)
+        install(args)
+        with vpn_health.locked(args.state):
+            generate(args); deploy(args)
+        auth(args); doctor(args)
     elif args.command == 'show':
         out = args.state / 'outputs' / args.backend
         print((out / 'share.txt').read_text())

@@ -57,7 +57,7 @@ def status_text(state):
 
 
 def inspect_network(args):
-    settings = json.loads((args.state / 'settings.json').read_text())
+    settings = vars(args)
     if settings['vpn_kind'] != 'openconnect' or settings['mode'] == 'none':
         raise ValueError('本机接管需要已启用的内置 VPN；请先在快速调整中启用 VPN 并登录')
     status = run([args.state / 'bin/sing-box', 'api', '--url',
@@ -313,6 +313,12 @@ def verify_free_network_slots():
 
 
 def apply(kit, args, enabled):
+    import vpn_health
+    with vpn_health.locked(args.state):
+        return apply_locked(kit, args, enabled)
+
+
+def apply_locked(kit, args, enabled):
     if sys.platform != 'linux' or os.geteuid() != 0:
         raise ValueError('本机网络接管需要 Linux root')
     if not enabled:
