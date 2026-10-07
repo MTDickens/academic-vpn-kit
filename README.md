@@ -158,7 +158,7 @@ sudo ./entrypoint.sh deploy --backend sing-box
 }
 ```
 
-优先级为：自定义有序规则（第一条命中即生效）→ 开启的域名组 → 私有 IP 地址拦截 → policy 默认出口。有序规则可以覆盖组，例如阻断某个 CMU 子域名；关闭域名组不会覆盖有序规则中显式指定的 VPN 出口。下次生成会保留 policy；用 `--policy none` 恢复单名单分流。`none` 和 `all` 模式暂时忽略已保存 policy 和组开关，回到分流模式后恢复。示例见 `rules/policy.example.json`。IP/CIDR、按用户/端口分流可以在生成器中继续扩展，当前只提供有序域名策略。
+优先级为：VPN 认证域名普通出口例外 → 自定义有序规则（第一条命中即生效）→ 开启的域名组 → 私有 IP 地址拦截 → policy 默认出口。有序规则可以覆盖组，例如阻断某个 CMU 子域名；关闭域名组不会覆盖有序规则中显式指定的 VPN 出口。下次生成会保留 policy；用 `--policy none` 恢复单名单分流。`none` 和 `all` 模式暂时忽略已保存 policy 和组开关，回到分流模式后恢复。示例见 `rules/policy.example.json`。IP/CIDR、按用户/端口分流可以在生成器中继续扩展，当前只提供有序域名策略。
 
 ## 产物与秘密
 
@@ -222,6 +222,10 @@ sing-box 官方图形客户端/Dashboard 也提供 endpoint 认证管理；它�
 ./entrypoint.sh check
 sudo ./entrypoint.sh deploy --backend sing-box
 ```
+
+VPN 登录本身不能依赖 VPN：内置 OpenConnect 的网关主机，以及 `rules/vpn-auth.json` 中该网关对应的认证域名，始终通过服务器普通出口访问。CMU 包含 `vpn.cmu.edu`、`login.cmu.edu`、CMU Qatar 登录、Duo 和 Entra 登录资源；不把整个 `cmu.edu` 改成直连。这个例外同时适用于 sing-box/Xray 入口和 Linux 本机接管，在按规则分流及全部走 VPN 时都生效，并优先于自定义策略。DNS 也使用非 VPN 解析，避免认证时的循环依赖。客户端仍可以通过 VLESS 到达服务器，再由服务器普通出口访问登录页，无需关闭客户端代理。
+
+其他学校自动保留所配置 VPN 网关的普通出口；其 SSO/MFA 依赖需要在 `rules/vpn-auth.json` 增加对应网关条目。`domain` 精确匹配，`domain_suffix` 匹配域名及其子域名；只添加公开认证所必需的域名，更新后通过菜单 1 或 8 的实际变更重新生成并部署。外部 SOCKS VPN 不自动继承 CMU 例外。CMU 域名参考 [官方登录说明](https://www.cmu.edu/computing/services/security/identity-access/authentication/how-to/weblogin.html)、[VPN 与 Duo 说明](https://www.cmu.edu/computing/services/endpoint/network-access/vpn/how-to/index.html)，Entra 资源参考 [Microsoft 官方端点列表](https://learn.microsoft.com/en-us/microsoft-365/enterprise/urls-and-ip-address-ranges)。
 
 若服务器因 `Max time exceeded` 等原因结束会话，worker 可能仍在运行但端点显示 `State: error`。菜单 3 会自动重置当前部署的 VPN worker 一次，再进入新的网页登录；已连接或正在认证的会话不会被重置。节点和本机 TUN 保持运行，等待你完成认证；成功后刷新已开启的本机接管配置。这个恢复步骤需要 root，不会保存 Cookie 或跳过 MFA。
 

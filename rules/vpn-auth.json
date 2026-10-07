@@ -1,0 +1,16 @@
+{
+  "vpn.cmu.edu": {
+    "domain": [
+      "login.cmu.edu",
+      "login.qatar.cmu.edu",
+      "login.microsoftonline.com"
+    ],
+    "domain_suffix": [
+      "duosecurity.com",
+      "msauth.net",
+      "msauthimages.net",
+      "msftauth.net",
+      "msftauthimages.net"
+    ]
+  }
+}

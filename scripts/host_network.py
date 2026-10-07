@@ -120,8 +120,11 @@ def build_config(kit, args, network, netns=None):
              {'process_path': [str(args.state / 'bin/sing-box'), str(args.state / 'bin/xray')],
               'action': 'route', 'outbound': 'direct'},
              {'protocol': 'icmp', 'action': 'reject'}]
-    # Explicitly preserve the VPN endpoint hostname, even in all/FakeIP mode.
-    dns_rules = [{'domain': [network['vpn_hostname']], 'server': 'direct-dns'},
+    # Login must remain reachable through both routing and DNS with a dead VPN.
+    auth = kit.auth_domains(args)
+    auth['domain'] = sorted(set(auth.get('domain', []) + [network['vpn_hostname']]))
+    rules.append({**auth, 'action': 'route', 'outbound': 'direct'})
+    dns_rules = [{**auth, 'server': 'direct-dns'},
                  {'query_type': ['A', 'AAAA'], 'server': 'fakeip'}]
     final = 'vpn' if mode == 'all' else 'direct'
     if mode == 'rules':

@@ -204,6 +204,37 @@ def selected_domains(args):
     return sorted(suffix), sorted(exact)
 
 
+def auth_domains(args):
+    """Public VPN login dependencies must work before the tunnel is available."""
+    if args.vpn_kind != 'openconnect' or not args.vpn_server:
+        return {}
+    url = args.vpn_server if '://' in args.vpn_server else 'https://' + args.vpn_server
+    hostname = urllib.parse.urlsplit(url).hostname
+    if not hostname:
+        raise ValueError('VPN 网关缺少主机名')
+    providers = json.loads((ROOT / 'rules/vpn-auth.json').read_text())
+    entry = providers.get(hostname, {})
+    if set(entry) - {'domain', 'domain_suffix'}:
+        raise ValueError('认证域名配置只支持 domain 和 domain_suffix')
+    result = {}
+    for key in ['domain', 'domain_suffix']:
+        values = entry.get(key, [])
+        if not isinstance(values, list) or any(not isinstance(x, str) or not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', x) for x in values):
+            raise ValueError('无效认证域名列表: ' + hostname)
+        result[key] = sorted(set(values + ([hostname] if key == 'domain' else [])))
+    return {key: value for key, value in result.items() if value}
+
+
+def apply_auth_routes(sb, xr, args):
+    domains = auth_domains(args)
+    if not domains or args.mode == 'none':
+        return
+    sb['route']['rules'].insert(1, {**domains, 'action': 'route', 'outbound': 'direct'})
+    xr['routing']['rules'].insert(0, {'type': 'field', 'domain':
+        ['full:' + x for x in domains.get('domain', [])] +
+        ['domain:' + x for x in domains.get('domain_suffix', [])], 'outboundTag': 'direct'})
+
+
 def apply_policy(sb, xr, policy, selected=((), ())):
     """Ordered hostname exceptions; same first-match semantics on both backends."""
     if set(policy) != {'default', 'rules'} or policy['default'] not in {'direct', 'vpn'}:
@@ -436,6 +467,7 @@ def _generate(args):
             policy = json.loads(Path(args.policy).read_text())
             dump(args.state / 'rules/policy.json', policy)
         apply_policy(sb, xr, policy, (suffix, exact))
+    apply_auth_routes(sb, xr, args)
     if args.vpn_kind == 'socks' and args.mode != 'none':
         secret_path = args.state / 'upstream-secrets.json'
         if secret_path.exists():
