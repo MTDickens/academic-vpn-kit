@@ -19,3 +19,5 @@ Operational diagnosis:
 5. Validate schema before restarting. Deploy preserves an unchanged worker and restarts it if provider configuration changes; re-authentication is then required. Active host routing is paused during deployment and resumed after authentication.
 
 Changing provider does not imply permission to bypass its MFA, endpoint requirements, subscription limits or proxy-sharing restrictions. CMU's official help page discourages proxies/connection sharing with Secure Client; native OpenConnect compatibility is not proof of an officially supported deployment.
+
+A running worker can retain `State: error` after a server session limit (`Max time exceeded`). The auth CLI only handles challenges; menu 3 now resets an owned failed worker once via `prepare_auth`, waits for its API, and starts authentication. Keep the host TUN running during this reset so VPN traffic cannot silently fall back direct; set its resume marker to refresh pushed DNS after successful authentication. Never reset connected or pending sessions just to retry login.

@@ -223,6 +223,8 @@ sing-box 官方图形客户端/Dashboard 也提供 endpoint 认证管理；它�
 sudo ./entrypoint.sh deploy --backend sing-box
 ```
 
+若服务器因 `Max time exceeded` 等原因结束会话，worker 可能仍在运行但端点显示 `State: error`。菜单 3 会自动重置当前部署的 VPN worker 一次，再进入新的网页登录；已连接或正在认证的会话不会被重置。节点和本机 TUN 保持运行，等待你完成认证；成功后刷新已开启的本机接管配置。这个恢复步骤需要 root，不会保存 Cookie 或跳过 MFA。
+
 重新部署会重启入口；VPN 配置相同时保留已登录的 worker，网关/协议/本地端口变化时自动重启 worker，然后需要 `auth`。VPN 会话和 Cookie 只在进程内，不保存学校密码；服务器重启或会话到期需要再次认证。VPN 故障时，指定走它的流量失败，不自动回退直连，普通出口不受影响。
 
 更换已部署后端：

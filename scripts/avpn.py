@@ -690,12 +690,44 @@ def deploy(args):
     print('已启动。VPN 未认证时，指定走 VPN 的连接会失败，不自动直连。')
 
 
+def prepare_auth(args, command):
+    current = run(command + ['status'], capture_output=True, text=True)
+    if not re.search(r'^State:\s+error\s*$', current.stdout, re.MULTILINE):
+        return current
+    # The auth CLI answers challenges; it cannot restart a failed endpoint.
+    # Restart only this deployment's worker, leaving gateway and host TUN up.
+    service = 'academic-vpn-vpn.service'
+    target, expected = UNIT_DIR / service, args.state / 'units' / service
+    state = systemd_path(args.state)
+    start = f'ExecStart={state}/bin/sing-box run -D {state} -c {state}/config/vpn.json'
+    if not target.exists() or not expected.exists() or target.read_text() != expected.read_text() or start not in target.read_text().splitlines():
+        raise ValueError('VPN worker 不属于当前配置目录，无法自动重置；请检查部署目录和服务')
+    if os.geteuid() != 0:
+        raise ValueError('VPN 会话已失效，重置需要 root；请用 sudo 重新选择登录 VPN')
+    print('VPN 会话已失效，正在重置 VPN worker，随后重新认证。', flush=True)
+    run(['systemctl', 'restart', service])
+    import host_network
+    if host_network.capture_enabled(args.state):
+        dump(args.state / 'host/resume.json', {'enabled': True})
+    for _ in range(20):
+        try:
+            current = run(command + ['status'], capture_output=True, text=True, timeout=1)
+            break
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            time.sleep(.1)
+    else:
+        raise ValueError('VPN worker 重启后 API 未就绪，请检查 academic-vpn-vpn.service')
+    if re.search(r'^State:\s+error\s*$', current.stdout, re.MULTILINE):
+        raise ValueError('VPN worker 重置后仍报错，请查看 VPN 状态；未反复重启')
+    return current
+
+
 def auth(args):
     settings = json.loads((args.state / 'settings.json').read_text())
     if settings['mode'] == 'none' or settings['vpn_kind'] != 'openconnect':
         print('当前模式不需要 OpenConnect 认证'); return
     command = [args.state / 'bin/sing-box', 'api', '--url', f"http://127.0.0.1:{settings['api_port']}", 'openconnect']
-    current = run(command + ['status'], capture_output=True, text=True)
+    current = prepare_auth(args, command)
     if re.search(r'^State:\s+connected\s*$', current.stdout, re.MULTILINE):
         print('VPN 已连接，无需重复认证')
     else:
