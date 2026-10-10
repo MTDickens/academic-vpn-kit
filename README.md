@@ -23,12 +23,16 @@ sudo ./entrypoint.sh
 ```text
 1. [开] 学术网站 / 当前域名名单
 2. [开] CMU：cmu.edu 及其所有子域名
+3. [关] Google 产品：搜索 / YouTube / Gmail / Drive / Gemini 等
+4. [关] SheerID：sheerid.com 及其所有子域名
 0. 应用当前选择（回车）
 ```
 
-输入编号即可反转对应开关，可以连续切换多个，最后回车一次性应用。默认两个组都开启；第一次升级旧配置时也会展示这两个默认值，回车应用后生效。分组选择保存到私人 `settings.json`，关闭 VPN 或临时切成全部代理后，再恢复分流仍保留原来的各组开关。所有组都关闭时，未被自定义有序规则匹配的流量走普通出口；要停止内置 VPN 进程，请用总开关“关闭 VPN”。
+输入编号即可反转对应开关，可以连续切换多个，最后回车一次性应用。默认学术、CMU 开启，Google、SheerID 关闭；升级保留原有开关，新组由用户主动开启。分组选择保存到私人 `settings.json`，关闭 VPN 或临时切成全部代理后，再恢复分流仍保留原来的各组开关。所有组都关闭时，未被自定义有序规则匹配的流量走普通出口；要停止内置 VPN 进程，请用总开关“关闭 VPN”。
 
 域名组按并集匹配：命中任一开启的组就走 VPN。例如 `cmu.edu` 同时覆盖根域名、`www.cmu.edu` 和 `ece017.ece.local.cmu.edu`，不匹配 `notcmu.edu`。关闭一个组不会强制直连其他开启组中也包含的域名。自定义学术名单不要混入整校域名，可保持两个开关职责清晰。
+
+Google 和 SheerID 是两个独立组，都使用当前选择的 VPN 出口。Google 使用 [domain-list-community 的 Google 组](https://github.com/v2fly/domain-list-community/blob/master/data/google)，递归展开 YouTube、Android、Firebase、Google Play、Gemini/DeepMind、Kaggle 等子名单；也包含 Google 广告、统计和托管服务域名。名单随仓库提供，启用时无需另行下载；更新方法及覆盖边界见 [规则来源](rules/README.md)。SheerID 匹配 `sheerid.com` 及其所有子域名，包含 [官方 API](https://developer.sheerid.com/api-quickstart) 使用的 `services.sheerid.com`。两个开关相互独立；例如只开 SheerID 不会自动打开 Google。
 
 无需重走地址、端口、后端等安装问题，也不会下载程序或安装依赖。节点身份和客户端连接参数沿用，客户端无需重新导入。首次启用 VPN 且没有连接设置时才补问提供商；会话过期或关闭后重连时可能需要学校登录。配置未变则直接返回；实际切换会重启代理入口，现有连接可能短暂中断，配置未变的 VPN 会话继续使用。
 
@@ -44,7 +48,7 @@ sudo ./entrypoint.sh
 
 运行 `sudo ./entrypoint.sh`：
 
-- **菜单 8：VPN 出口策略**。选择关闭 VPN、按规则分流或全部走 VPN；学术、CMU 等规则组分别开关。
+- **菜单 8：VPN 出口策略**。选择关闭 VPN、按规则分流或全部走 VPN；学术、CMU、Google、SheerID 等规则组分别开关。
 - **菜单 9：接管 Linux 本机网络**。只选择关闭或开启；开启后，本机流量也进入同一套分流系统。
 
 这里的 Linux 指运行脚本的机器，不是 Mac，也不改变客户端的 Clash 模式。

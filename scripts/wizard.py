@@ -66,7 +66,7 @@ def configure_vpn(args):
 
 
 MODES = [('none', '关闭 VPN，使用普通出口'),
-         ('rules', '按独立规则组分流（学术、CMU 等）'),
+         ('rules', '按独立规则组分流（学术、CMU、Google、SheerID）'),
          ('all', '全部流量走 VPN（在已选择的接管范围内）')]
 
 
@@ -131,7 +131,7 @@ def collect(kit, initial_state):
         ('auth', '登录/重新登录 VPN'), ('doctor', '查看状态并检查连接'),
         ('show', '查看分享链接和 Clash 配置'), ('stop', '停止本仓库的节点服务'),
         ('update-rules', '下载社区学术域名名单'),
-        ('switch', '快速调整 VPN：总开关 / 学术与 CMU 独立开关'),
+        ('switch', '快速调整 VPN：总开关 / 各域名组独立开关'),
         ('host-network', '接管 Linux 本机网络：独立开关')],
         7 if (state / 'deployed/settings.json').exists() else 0)
     args.command = action
@@ -140,7 +140,7 @@ def collect(kit, initial_state):
         import host_network
         current = host_network.capture_enabled(args.state)
         print('当前 VPN 出口策略：' + dict(MODES)[args.mode])
-        print('此开关只决定是否接管本机流量；分流策略和学术 / CMU 开关在菜单 8 设置。')
+        print('此开关只决定是否接管本机流量；分流策略和各域名组开关在菜单 8 设置。')
         args.host_enabled = choice('接管 Linux 本机网络', host_network.CAPTURE_CHOICES, int(current))
         return args, credentials
     if action == 'switch':

@@ -79,7 +79,7 @@ class HostNetworkTests(unittest.TestCase):
             self.assertEqual(all_config['inbounds'][0]['route_exclude_address'], network['exclude'])
             self.assertEqual(all_config['dns']['rules'][0]['domain'], ['vpn.cmu.edu'])
             self.assertTrue(any('process_path' in rule for rule in all_config['route']['rules']))
-            self.assertEqual(args.groups, {'academic': False, 'cmu': True})
+            self.assertEqual(args.groups, {'academic': False, 'cmu': True, 'google': False, 'sheerid': False})
 
     def test_host_wizard_only_asks_scope(self):
         with tempfile.TemporaryDirectory() as td:
@@ -89,6 +89,21 @@ class HostNetworkTests(unittest.TestCase):
             self.assertEqual(args.command, 'host-network')
             self.assertTrue(args.host_enabled)
             self.assertIsNone(credentials)
+
+    def test_google_and_sheerid_host_routes_follow_independent_switches(self):
+        with tempfile.TemporaryDirectory() as td:
+            args = avpn.resolve_args(avpn.parser().parse_args(['status', '--state', td, '--mode', 'rules',
+                '--groups', '{"academic":false,"cmu":false,"google":true,"sheerid":false}']))
+            network = {'interface': 'eth0', 'exclude': [], 'vpn_dns': '128.2.1.10',
+                       'vpn_hostname': 'vpn.cmu.edu', 'vpn_port': 12080}
+            for google, sheerid in [(True, False), (False, True), (True, True), (False, False)]:
+                args.groups.update(google=google, sheerid=sheerid)
+                config = hn.build_config(avpn, args, network)
+                suffix = [d for r in config['route']['rules'] if r.get('outbound') == 'vpn'
+                          for d in r.get('domain_suffix', [])]
+                self.assertEqual('google.com' in suffix, google)
+                self.assertEqual('sheerid.com' in suffix, sheerid)
+                self.assertEqual(config['route']['final'], 'direct')
 
     def test_legacy_choices_migrate_without_changing_shared_policy(self):
         with tempfile.TemporaryDirectory() as td:

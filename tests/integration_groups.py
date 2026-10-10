@@ -87,9 +87,16 @@ def main():
             academic = state / 'academic.txt'
             academic.write_text('journal.invalid\n')
             gateway_port = available_port()
-            domains = {'academic': 'journal.invalid', 'cmu': 'route-test.ece.local.cmu.edu'}
-            for academic_on, cmu_on in itertools.product([False, True], repeat=2):
-                groups = {'academic': academic_on, 'cmu': cmu_on}
+            cases = []
+            for pair in [('academic', 'cmu'), ('google', 'sheerid')]:
+                for values in itertools.product([False, True], repeat=2):
+                    groups = {key: False for key in avpn.group_definitions()}
+                    groups.update(zip(pair, values))
+                    cases.append((pair, groups))
+            hosts = {'academic': 'journal.invalid', 'cmu': 'route-test.ece.local.cmu.edu',
+                     'google': 'route-test.google.com', 'sheerid': 'route-test.sheerid.com'}
+            for pair, groups in cases:
+                domains = {key: hosts[key] for key in pair}
                 a = avpn.resolve_args(avpn.parser().parse_args(['generate', '--state', str(state),
                     '--server', '127.0.0.1', '--port', str(gateway_port), '--mode', 'rules',
                     '--vpn-kind', 'socks', '--upstream-port', str(upstream.server_address[1]),
@@ -123,7 +130,7 @@ def main():
                                     assert upstream.seen.get(timeout=1) == domain, 'Hostname must reach upstream unchanged'
                                 else:
                                     assert upstream.seen.empty(), 'Disabled group must not use VPN'
-                            print(f'PASS {backend}: academic={academic_on}, cmu={cmu_on}; hostname preserved')
+                            print(f'PASS {backend}: {groups}; hostname preserved')
                         finally:
                             client.terminate(); server.terminate()
                             client.wait(timeout=5); server.wait(timeout=5)

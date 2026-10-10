@@ -32,7 +32,9 @@ Independent rule groups:
 /usr/bin/python3 tests/integration_groups.py --bin-dir /private/state/bin
 ```
 
-This uses a local recording SOCKS5 server and temporary VLESS gateway/client pairs to test all four academic/CMU switch combinations on both backends. It verifies enabled domains reach the upstream as hostnames (including an ECE-style name), disabled groups do not use the upstream, and generated configurations pass the native validators. It does not require a VPN login. REALITY handshake traffic may contact the configured public handshake host.
+This uses a local recording SOCKS5 server and temporary VLESS gateway/client pairs to test all four academic/CMU combinations and all four Google/SheerID combinations on both backends. It verifies enabled domains reach the upstream as hostnames (including an ECE-style name), disabled groups do not use the upstream, and generated configurations pass the native validators. It does not require a VPN login. REALITY handshake traffic may contact the configured public handshake host.
+
+Unit tests cover all 16 combinations of the four groups, representative Google product domains, SheerID separation, suffix boundaries, independent host routes and migration defaults. The Google importer tests recursive/cyclic includes, exact matching, attributes, redundant CDN regex coverage and rejection of unsupported syntax.
 
 Additional regression tests verify group persistence through all/none scopes, same-scope toggles, legacy migration, custom policy priority, an empty selection, and extensible group definitions. With the existing authenticated CMU worker, both temporary VLESS gateway backends also returned an SSH greeting from `ece017.ece.local.cmu.edu:22`; no school account login or GPU job was performed.
 

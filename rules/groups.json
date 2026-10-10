@@ -8,5 +8,15 @@
     "name": "CMU：cmu.edu 及其所有子域名",
     "default": true,
     "domains": ["cmu.edu"]
+  },
+  "google": {
+    "name": "Google 产品：搜索 / YouTube / Gmail / Drive / Gemini 等",
+    "default": false,
+    "file": "google-domains.txt"
+  },
+  "sheerid": {
+    "name": "SheerID：sheerid.com 及其所有子域名",
+    "default": false,
+    "domains": ["sheerid.com"]
   }
 }

@@ -86,14 +86,14 @@ class QuickSwitchTests(unittest.TestCase):
                 with patch('builtins.input', side_effect=['', '', '', '1', '']):
                     wizard.wizard(avpn, state)
                 self.assertEqual(json.loads((state / 'settings.json').read_text())['groups'],
-                                 {'academic': False, 'cmu': True})
+                                 {'academic': False, 'cmu': True, 'google': False, 'sheerid': False})
                 self.assertEqual(deploy.call_count, 1)
                 # Temporarily disable VPN, then return to rules; group choices survive.
                 for answers in [['', '', '1'], ['', '', '2', '']]:
                     with patch('builtins.input', side_effect=answers):
                         wizard.wizard(avpn, state)
                 self.assertEqual(json.loads((state / 'settings.json').read_text())['groups'],
-                                 {'academic': False, 'cmu': True})
+                                 {'academic': False, 'cmu': True, 'google': False, 'sheerid': False})
 
     def test_legacy_deployment_applies_new_defaults_even_when_mode_unchanged(self):
         with tempfile.TemporaryDirectory() as td:
@@ -106,4 +106,4 @@ class QuickSwitchTests(unittest.TestCase):
             with patch('builtins.input', side_effect=['', '', '', '']):
                 args, _ = wizard.collect(avpn, state)
             self.assertEqual(args.command, 'switch')
-            self.assertEqual(args.groups, {'academic': True, 'cmu': True})
+            self.assertEqual(args.groups, {'academic': True, 'cmu': True, 'google': False, 'sheerid': False})
